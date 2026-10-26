@@ -15,6 +15,7 @@ public partial class DrawerWindow : Window
     private readonly Workspace workspace;
     public Drawer Model { get; }
     private bool updating = true;
+    private bool initializing = true;
     private Point dragOrigin;
     private Point? headerAnchor;
     private Point drawerAnchor;
@@ -51,7 +52,7 @@ public partial class DrawerWindow : Window
         ResizeGrip.Visibility = Model.Expanded ? Visibility.Visible : Visibility.Collapsed;
         Height = Model.Expanded ? Model.Height : 46;
         updating = false;
-        if (IsDesktopHosted) DesktopVisibility.Place(this, Model.Left, Model.Top);
+        if (IsDesktopHosted && !initializing) PlaceDrawer();
     }
     public void RefreshItems() => Items.ItemsSource = Model.Items.Select(i => new ShortcutViewModel(i)).ToList();
     private void ToggleExpanded(object sender, RoutedEventArgs e) { Model.Expanded = !Model.Expanded; ApplyAppearance(); workspace.Changed(); }
@@ -81,7 +82,23 @@ public partial class DrawerWindow : Window
         var scale = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformToDevice ?? Matrix.Identity;
         Model.Left = drawerAnchor.X + (current.X - anchor.X) / scale.M11;
         Model.Top = drawerAnchor.Y + (current.Y - anchor.Y) / scale.M22;
-        DesktopVisibility.Place(this, Model.Left, Model.Top); workspace.Changed();
+        PlaceDrawer(); workspace.Changed();
+    }
+    private void PlaceDrawer()
+    {
+        if (IsDesktopHosted)
+        {
+            try { DesktopVisibility.Place(this, Model.Left, Model.Top); }
+            catch (Exception ex) { workspace.ReportPlacementFailure(ex); }
+        }
+        else
+        {
+            // GetParent on a top-level tool window returns its owner, not a child
+            // coordinate space. Use WPF screen coordinates in compatibility mode.
+            updating = true;
+            Left = Model.Left; Top = Model.Top;
+            updating = false;
+        }
     }
     private void EndHeaderDrag(object sender, MouseButtonEventArgs e) { headerAnchor = null; ((UIElement)sender).ReleaseMouseCapture(); }
     private void EndHeaderCapture(object sender, MouseEventArgs e) => headerAnchor = null;
@@ -91,13 +108,18 @@ public partial class DrawerWindow : Window
         Width = Math.Clamp(Width + e.HorizontalChange, MinWidth, 2000);
         Height = Math.Clamp(Height + e.VerticalChange, MinHeight, 2000);
         CaptureGeometry();
-        DesktopVisibility.Place(this, Model.Left, Model.Top);
+        PlaceDrawer();
     }
     private void GeometryChanged(object sender, SizeChangedEventArgs e) => CaptureGeometry();
     private void LocationChangedHandler(object? sender, EventArgs e) => CaptureGeometry();
+    public void CompleteInitialization()
+    {
+        initializing = false;
+        CaptureGeometry();
+    }
     private void CaptureGeometry()
     {
-        if (updating || !IsLoaded) return;
+        if (initializing || updating || !IsLoaded) return;
         if (!IsDesktopHosted) { Model.Left = Left; Model.Top = Top; }
         Model.Width = Width;
         if (Model.Expanded) Model.Height = Height;

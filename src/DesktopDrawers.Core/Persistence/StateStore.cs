@@ -31,6 +31,7 @@ public sealed class StateStore(string directory)
             throw new InvalidDataException("Formato de estado no compatible.");
         if (state.Drawers.Select(d => d.Id).Distinct().Count() != state.Drawers.Count)
             throw new InvalidDataException("Identificadores duplicados.");
+        if (!Enum.IsDefined(state.DesktopMode)) state.DesktopMode = Services.DesktopMode.Compatibility;
         foreach (var d in state.Drawers)
         {
             d.Width = FiniteClamp(d.Width, 240, 2000, 340);

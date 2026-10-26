@@ -2,6 +2,7 @@ namespace DesktopDrawers.Core.Models;
 
 public sealed class AppState
 {
+    public DesktopDrawers.Core.Services.DesktopMode DesktopMode { get; set; } = DesktopDrawers.Core.Services.DesktopMode.Compatibility;
     public int Version { get; set; } = 1;
     public bool Visible { get; set; } = true;
     public List<Drawer> Drawers { get; set; } = [];

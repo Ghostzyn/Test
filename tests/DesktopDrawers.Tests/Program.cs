@@ -135,6 +135,59 @@ var tests = new (string Name, Action<string> Run)[]
         var item = service.Import(drawer, path);
         Check(!File.Exists(path) && item.Name == "Enlace", "sin duplicado y nombre conservado");
         Check(service.Restore(drawer, item) == path && File.Exists(path), "restaurar escritorio público");
+    }),
+    ("Migración 0.2.0 recupera Test y Nuevo cajón en compatibilidad", root =>
+    {
+        var original = """
+        {"Version":1,"Visible":true,"Drawers":[{"Name":"Test","Left":90,"Top":140,"Items":[{"Name":"Juego","StoredPath":"managed.lnk","OriginalPath":"desktop.lnk"}]},{"Name":"Nuevo cajón","Expanded":false,"Background":"#AABBCC","Opacity":0.4,"Items":[]}]}
+        """;
+        var path = Path.Combine(root, "state.json"); File.WriteAllText(path, original);
+        var store = new StateStore(root); var state = store.Load();
+        Check(state.DesktopMode == DesktopMode.Compatibility, "no volver a un alojamiento invisible por defecto");
+        var ids = state.Drawers.Select(d => d.Id).ToArray();
+        Check(state.Drawers[0].Name == "Test" && state.Drawers[1].Name == "Nuevo cajón", "mismos cajones");
+        state.DesktopMode = DesktopMode.Integrated; store.Save(state);
+        Check(store.Load().DesktopMode == DesktopMode.Integrated, "preferencia integrada persistida");
+        state.DesktopMode = DesktopMode.Compatibility; store.Save(state);
+        var reloaded = store.Load();
+        Check(reloaded.Drawers.Select(d => d.Id).SequenceEqual(ids) && reloaded.Drawers[0].Items[0].StoredPath == "managed.lnk" && reloaded.Drawers[0].Items[0].OriginalPath == "desktop.lnk" && reloaded.Drawers[0].Left == 90 && reloaded.Drawers[0].Top == 140 && !reloaded.Drawers[1].Expanded && reloaded.Drawers[1].Opacity == .4, "cambiar de modo no reemplaza datos");
+    }),
+    ("Validar alojamiento detecta padres, recortes, opacidad, estilos y capas", _ =>
+    {
+        var valid = new DesktopProbe(); Check(valid.Failures(true).Length == 0, "estructura válida");
+        var invalid = new[]
+        {
+            valid with { ParentValid = false }, valid with { ParentMatches = false },
+            valid with { AncestorsVisible = false }, valid with { WpfVisible = false },
+            valid with { NativeVisible = false }, valid with { SizeValid = false },
+            valid with { OnScreen = false }, valid with { WithinParent = false },
+            valid with { ChildStyle = false }, valid with { PopupStyle = true },
+            valid with { TopmostStyle = true }, valid with { Cloaked = true },
+            valid with { SurfaceOnTop = false }, valid with { ExplorerLayerAbove = true }
+        };
+        foreach (var probe in invalid) Check(probe.Failures(true).Length > 0, "rechazar supuesto éxito de SetParent");
+    }),
+    ("Ocultación global intencionada no se confunde con fallo del alojamiento", _ =>
+    {
+        var hidden = new DesktopProbe { NativeVisible = false, SurfaceOnTop = false, ExplorerLayerAbove = true };
+        Check(hidden.Failures(false).Length == 0 && hidden.Failures(true).Length > 0, "distinguir ocultación del usuario");
+        Check((hidden with { ParentValid = false }).Failures(false).Length > 0, "padre inválido incluso oculto");
+    }),
+    ("Fallo integrado bloquea reintentos hasta una selección explícita", _ =>
+    {
+        var session = new IntegrationSession(DesktopMode.Integrated);
+        session.FailIntegrated();
+        Check(session.Mode == DesktopMode.Compatibility && session.FallbackUsed, "fallback");
+        for (var n = 0; n < 100; n++) session.FailIntegrated();
+        Check(session.Mode == DesktopMode.Compatibility, "no volver a intentar al recibir eventos");
+        session.Select(DesktopMode.Integrated);
+        Check(session.Mode == DesktopMode.Integrated && !session.FallbackUsed, "reintento solo por usuario");
+    }),
+    ("Modo desconocido se recupera sin descartar los cajones", root =>
+    {
+        var store = new StateStore(root); var state = new AppState { DesktopMode = (DesktopMode)999, Drawers = [new Drawer { Name = "Conservar" }] };
+        store.Save(state); var loaded = store.Load();
+        Check(loaded.DesktopMode == DesktopMode.Compatibility && loaded.Drawers.Single().Name == "Conservar", "modo inválido no invalida el estado");
     })
 };
 var failures = 0;

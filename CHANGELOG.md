@@ -1,5 +1,17 @@
 # Cambios
 
+## 0.2.1 — recuperación de cajones invisibles
+
+- Compatibilidad independiente por defecto para JSON anteriores; selector persistido y botón Recuperar cajones sin reiniciar datos.
+- Integración experimental en la superficie de iconos (DefView), no como hermanos en una capa de Progman/WorkerW que podría quedar oculta.
+- Tamaño y orden nativo explícitos, comprobación de errores Win32 y dos capturas de estado (inicial y diferida). Se bloquea el guardado de posiciones durante el reparentado.
+- Detección estructural de padre perdido/oculto, recorte, tamaño inválido, estilos, cloaking y capas de Explorer. No se anuncia éxito visual por SetParent.
+- Fallos vuelven a compatibilidad de forma persistente. No hay bucle de reintentos de integración.
+- Diagnóstico JSONL con rotación y captura manual; conservación de bandeja, inicio por usuario, cajones y accesos.
+- 17 pruebas del núcleo aprobadas en Linux; comprobación gráfica en Windows 11 pendiente.
+
+[Diagnóstico de la regresión y archivos modificados](docs/REGRESION-VISIBILIDAD.md).
+
 ## 0.2.0 — revisión residente
 
 Correcciones sobre el proyecto existente; se mantienen los datos JSON v1 y su ubicación en AppData.

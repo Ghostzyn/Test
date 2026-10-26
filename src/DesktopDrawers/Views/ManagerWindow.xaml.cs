@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using System.Windows.Controls;
+using DesktopDrawers.Core.Services;
 using System.Windows;
 using System.Windows.Input;
 using DesktopDrawers.Core.Models;
@@ -7,6 +9,7 @@ namespace DesktopDrawers.Views;
 public partial class ManagerWindow : Window
 {
     private readonly Workspace workspace;
+    private bool refreshing;
     public ManagerWindow(Workspace workspace)
     {
         InitializeComponent(); this.workspace = workspace;
@@ -15,9 +18,23 @@ public partial class ManagerWindow : Window
     }
     private void Refresh()
     {
+        refreshing = true;
+        DesktopModeChoice.SelectedIndex = (int)workspace.Mode;
         Drawers.ItemsSource = null; Drawers.ItemsSource = workspace.State.Drawers;
         Workspace.Safe(() => StartupCheck.IsChecked = workspace.Startup.Enabled);
-        IntegrationStatus.Text = workspace.IntegrationStatus;
+        IntegrationStatus.Text = workspace.IntegrationStatus + (workspace.State.Visible ? "" : " Los cajones están ocultos por el interruptor global.");
+        refreshing = false;
+    }
+    private void DesktopModeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (refreshing || workspace is null || DesktopModeChoice.SelectedIndex < 0) return;
+        Workspace.Safe(() => workspace.SelectMode((DesktopMode)DesktopModeChoice.SelectedIndex));
+        Refresh();
+    }
+    private void RecoverDrawers(object sender, RoutedEventArgs e) => workspace.RecoverVisible();
+    private void ShowDiagnostics(object sender, RoutedEventArgs e)
+    {
+        Workspace.Safe(() => { workspace.CaptureDiagnostics(); MessageBox.Show("Diagnóstico guardado en:\n" + workspace.Diagnostics.FilePath, "Desktop Drawers"); });
     }
     public void OpenConfiguration()
     {

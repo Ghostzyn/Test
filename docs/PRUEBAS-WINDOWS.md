@@ -1,4 +1,4 @@
-# Validación pendiente en Windows 11 x64 — versión 0.2.0
+# Validación pendiente en Windows 11 x64 — versión 0.2.1
 
 No se ha ejecutado una sesión gráfica de Windows en el entorno de desarrollo Linux. La compilación y las pruebas del núcleo no verifican Win32/WPF/OLE. Esta lista requiere una persona o un runner gráfico Windows. No se presentan estos casos como aprobados.
 
@@ -6,7 +6,7 @@ Antes de empezar, cierra la versión anterior y copia `%LOCALAPPDATA%\DesktopDra
 
 | Caso | Acción | Resultado esperado |
 |---|---|---|
-| Migración | Abrir 0.2.0 con los datos anteriores | Mismos cajones, GUID, accesos, nombres, colores, geometría y visibilidad global. Si antes estaban ocultos, usar Mostrar/ocultar. |
+| Migración | Abrir 0.2.1 con los datos anteriores | Mismos cajones, GUID, accesos, nombres, colores, geometría y visibilidad global. Si antes estaban ocultos, usar Mostrar/ocultar. |
 | Residencia | Crear un cajón y cerrar la configuración con X | El proceso, el icono de bandeja y el cajón siguen activos. La bandeja puede estar en los iconos ocultos de Windows. |
 | Reabrir | Doble clic en la bandeja o Abrir configuración | Vuelve el administrador sin duplicar cajones. |
 | Salida real | Bandeja → Salir completamente | Desaparecen bandeja, proceso y cajones; los accesos permanecen administrados, no se borran. Al reabrir, se recuperan. |
@@ -28,13 +28,25 @@ Antes de empezar, cierra la versión anterior y copia `%LOCALAPPDATA%\DesktopDra
 | Guardado | Mover, redimensionar, contraer, cambiar colores; cerrar administrador y salir desde bandeja | Se conserva todo al volver a abrir. |
 | Reposo | Dejar administrador oculto sin interacción | Sin sondeo del foco ni actualizaciones periódicas de UI. Medir en Administrador de tareas antes de atribuir cifras de CPU/memoria. |
 
+## Verificaciones de la regresión de cajones invisibles
+
+1. Con una copia del AppData de 0.2.0 que contenga «Test» y «Nuevo cajón», iniciar 0.2.1: el selector debe estar en Compatibilidad. Comprobar ambos cajones y su contenido sin crear sustitutos. Si la visibilidad global estaba apagada, pulsar Recuperar cajones.
+2. En compatibilidad, mover, redimensionar, personalizar, contraer y restaurar; seleccionar un icono ajeno y arrastrar .lnk/.url desde Explorer. Comprobar indicación azul, traslado sin duplicado y restauración. Repetir doble clic/apertura y traslado entre cajones.
+3. Superponer ventanas normales y juego a pantalla completa; los cajones no deben permanecer encima. Probar también Win+D y volver al escritorio: anotar diferencias de comportamiento del modo de ventanas independientes. No interpretar el modo de compatibilidad como una garantía de integración perfecta con Explorer.
+4. Cambiar explícitamente a Integrado. Si se detecta padre oculto, recorte, tamaño/capas/estilos inválidos, debe regresar una sola vez a Compatibilidad y conservarla tras reiniciar. Si se ve el texto de comprobaciones nativas pero no los cajones, pulsar Diagnóstico y Recuperar cajones; no reinicializar datos.
+5. Con integración visible, seleccionar iconos y hacer drop, cambiar fondo, reiniciar Explorer, probar DPI mixtos y desconectar pantallas. Comprobar que el título permanece alcanzable y que no se confunden coordenadas de pantalla/cliente. La recuperación automática no debe quedar en un bucle.
+6. Reiniciar después de cambiar el modo y verificar persistencia. Probar ocultación global intencionada, cerrar configuración hacia bandeja, inicio Windows y salida completa.
+7. Pulsar Diagnóstico en ambos modos. Comprobar que `desktop-diagnostics.jsonl` muestra HWND/padre/clase, estilos, rectángulos, DPI, Visibility/Opacity y capas. Confirmar rotación y mensaje de error si no se puede escribir. Comparar rectángulo real con la pantalla y revisar entradas anteriores al fallback.
+
+Todos estos casos permanecen **pendientes de ejecución en Windows 11**. En Linux se prueban únicamente carga/persistencia, política de fallback y evaluación de snapshots simulados, además de la lógica de archivos.
+
 ## Diagnóstico de integración
 
-`SetParent` sobre Progman/WorkerW usa una jerarquía de Explorer no documentada. Se busca `SHELLDLL_DefView` únicamente en el proceso real del shell; no se envía el mensaje privado 0x052C ni se crean WorkerW adicionales. Se utiliza el host existente y se mantienen los cajones como ventanas hijas (WS_CHILD), sin Topmost ni hooks globales de teclado/ratón. El único atajo se registra con `RegisterHotKey`.
+El modo Integrado usa una superficie `SHELLDLL_DefView` de Explorer y sus ancestros Progman/WorkerW, una jerarquía no documentada. Se utiliza el shell real, sin mensajes privados 0x052C ni creación de nuevos WorkerW. Se comprueban estructura, dimensiones, recorte y orden nativo; no se puede demostrar composición real con `IsWindowVisible`.
 
-Cambios de Explorer, DPI o aplicaciones que reemplacen el escritorio pueden impedir el alojamiento. Hay manifiesto PerMonitorV2, pero la compatibilidad entre procesos y la geometría con DPI mixtos requieren esta validación. Ante fallo el administrador muestra el motivo y se reintenta después de 30 segundos; no se borran los datos ni se fuerza una ventana Always on Top. No se garantiza la recuperación en todas las versiones de Windows hasta completar las pruebas.
+Ante fallo se registran detalles y se recrean como ventanas independientes en Compatibilidad, conservando datos. La selección no vuelve a Integrado sin intervención explícita. No hay temporizador de reintentos indefinidos. El manifiesto PerMonitorV2 no sustituye la validación con monitores reales. Ver [REGRESION-VISIBILIDAD.md](REGRESION-VISIBILIDAD.md).
 
-Si los cajones no aparecen, comprueba primero el interruptor de visibilidad y el mensaje de integración en configuración. Adjunta versión/build de Windows, pantallas y DPI al informar el fallo. No restablezcas AppData como primer intento.
+Si los cajones no aparecen, pulsa **Recuperar cajones** en configuración: activa Compatibilidad y visibilidad global. Usa **Diagnóstico…** antes de cambiar de modo si quieres capturar el fallo. Adjunta versión/build de Windows, pantallas y DPI al informar el fallo. No restablezcas AppData como primer intento.
 
 ## Actualización de una versión residente
 

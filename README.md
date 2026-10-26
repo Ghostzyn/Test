@@ -1,4 +1,4 @@
-# Desktop Drawers 0.2.0
+# Desktop Drawers 0.2.1
 
 Aplicación nativa C# / WPF para Windows 11 x64, sin navegador ni dependencias de terceros. Usa .NET 10 LTS. El repositorio incluye la solución, la aplicación, una biblioteca independiente de WPF y pruebas ejecutables sin paquetes de pruebas externos.
 
@@ -9,6 +9,14 @@ Aplicación nativa C# / WPF para Windows 11 x64, sin navegador ni dependencias d
 Extrae el ZIP y abre `DesktopDrawers/DesktopDrawers.exe`. No necesitas Visual Studio ni instalar .NET por separado. Si GitHub solicita iniciar sesión, usa una cuenta con acceso a este repositorio. También puedes abrir `downloads/DesktopDrawers-win-x64-portable.zip` en GitHub y pulsar **Download raw file**. El checksum está en `downloads/SHA256SUMS.txt`.
 
 Esta es una versión preliminar. Compilada para Windows x64 y con pruebas del núcleo aprobadas; la interfaz y la integración con Explorer están pendientes de validación en Windows 11. Prueba primero con accesos descartables.
+
+## Recuperar cajones que no se veían en 0.2.0
+
+Esta actualización inicia en **Compatibilidad** al cargar los datos de 0.2.0: reutiliza tus cajones y accesos como ventanas independientes, sin SetParent ni Topmost. Si estaban ocultos, abre configuración desde la bandeja y pulsa **Recuperar cajones**. No borres AppData.
+
+En **Modo de escritorio** puedes elegir Compatibilidad o Integrado con Explorer (experimental). Ante un fallo detectado vuelve a compatibilidad y no repite indefinidamente intentos fallidos. **Diagnóstico…** guarda el estado nativo en `%LOCALAPPDATA%\DesktopDrawers\desktop-diagnostics.jsonl`. El estado integrado solo informa comprobaciones estructurales; no asegura que DWM haya dibujado los cajones.
+
+[Hallazgos y archivos modificados](docs/REGRESION-VISIBILIDAD.md). Las interacciones gráficas todavía requieren pruebas Windows 11.
 
 ## Compilar y ejecutar en Windows
 
@@ -44,7 +52,7 @@ Ejecuta `artifacts/win-x64/DesktopDrawers.exe`. Es una aplicación portátil sin
 9. La **X** y **Ocultar configuración** cierran solamente la vista de administración; los cajones y la aplicación siguen activos. La bandeja permite abrir configuración, mostrar/ocultar cajones, activar/desactivar inicio con Windows y **Salir completamente**, la única salida normal del programa.
 10. **Iniciar Desktop Drawers con Windows** está desactivado por defecto. Al activarlo se guarda un valor por usuario en `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, sin administrador. Inicia con `--background`, sin configuración y respetando la visibilidad guardada. Desactivarlo elimina solo el valor propio. Si mueves el EXE a otra carpeta, desactiva/reactiva esta opción para actualizar la ruta.
 
-Para actualizar, cierra primero la versión anterior, conserva `%LOCALAPPDATA%\DesktopDrawers` y extrae el nuevo ZIP. El formato JSON v1 permanece compatible. [Cambios 0.2.0](CHANGELOG.md) y [pruebas manuales Windows](docs/PRUEBAS-WINDOWS.md).
+Para actualizar, cierra primero la versión anterior, conserva `%LOCALAPPDATA%\DesktopDrawers` y extrae el nuevo ZIP. El formato JSON v1 permanece compatible. [Cambios 0.2.1](CHANGELOG.md) y [pruebas manuales Windows](docs/PRUEBAS-WINDOWS.md).
 
 ## Datos y recuperación
 
@@ -64,9 +72,11 @@ Ante un corte de energía, realiza copia de seguridad de toda la carpeta de dato
 
 Se eliminó la regla que ocultaba cajones al cambiar el foco (`CanShowDrawers` / `EVENT_SYSTEM_FOREGROUND`), causante de su desaparición al seleccionar/arrastrar iconos. La visibilidad depende únicamente del interruptor global.
 
-La revisión aloja los HWND de los cajones como hijos del Progman/WorkerW que contiene `SHELLDLL_DefView`, en el proceso del shell. La jerarquía del escritorio los mantiene bajo las ventanas de aplicaciones sin Topmost. No se inyecta código, no se modifica Explorer ni se usan hooks globales de teclado o ratón. Se registra Ctrl+Alt+D, se observan destrucción del host y mensajes `TaskbarCreated`/cambio de pantallas para recrear los cajones.
+El modo predeterminado **Compatibilidad** conserva ventanas independientes ToolWindow/NoActivate y las ordena por debajo de aplicaciones, sin Topmost. La selección del escritorio no cambia el interruptor de visibilidad. Windows sigue administrando sus ventanas (Win+D, escalados y fondos de terceros necesitan pruebas específicas).
 
-Esta jerarquía no es una API pública estable. Si no existe un host compatible o `SetParent` falla, el administrador muestra el diagnóstico, conserva datos y reintenta; no se sustituye por ventanas sobre otras aplicaciones. La compatibilidad real (incluidos reinicio de Explorer, DnD OLE y DPI mixtos) está pendiente de Windows 11. [Procedimiento de prueba y limitaciones](docs/PRUEBAS-WINDOWS.md).
+El modo **Integrado**, experimental y explícito, aloja los HWND como hijos de `SHELLDLL_DefView` del shell (superficie de iconos), verifica padre/visibilidad/estilos/rectángulos/recorte/capas y vuelve a compatibilidad ante fallo. No se inyecta código, se modifica Explorer ni se usan hooks globales de teclado o ratón. Se conserva el atajo Ctrl+Alt+D y las señales de recuperación, ahora limitadas.
+
+La jerarquía de Explorer no es una API pública estable. Los controles nativos no demuestran visibilidad gráfica. [Causa de la regresión y recuperación](docs/REGRESION-VISIBILIDAD.md) y [procedimiento de prueba](docs/PRUEBAS-WINDOWS.md).
 
 El doble clic en una zona vacía del escritorio sigue pendiente; se conserva Ctrl+Alt+D y el menú de bandeja.
 
@@ -80,7 +90,7 @@ El doble clic en una zona vacía del escritorio sigue pendiente; se conserva Ctr
 - `DesktopDrawers/Services`: coordinación, guardado diferido y extracción de iconos.
 - `DesktopDrawers/NativeInterop`: alojamiento del escritorio, recuperación y atajo.
 
-El guardado de geometría se difiere 400 ms para agrupar cambios; no existe sondeo periódico del foco; solo hay reintentos de integración si falla el alojamiento. Los handles de icono se liberan mediante `DestroyIcon`, los bitmaps se congelan y el hook se libera al salir. Actualmente los iconos se cargan al refrescar el cajón: la carga diferida y virtualización de grandes colecciones quedan pendientes. No hay mediciones de consumo ni afirmaciones numéricas de rendimiento.
+El guardado de geometría se difiere 400 ms para agrupar cambios; no existe sondeo periódico del foco; solo hay comprobaciones diferidas y recuperación limitada ante señales concretas. Los handles de icono se liberan mediante `DestroyIcon`, los bitmaps se congelan y el hook se libera al salir. Actualmente los iconos se cargan al refrescar el cajón: la carga diferida y virtualización de grandes colecciones quedan pendientes. No hay mediciones de consumo ni afirmaciones numéricas de rendimiento.
 
 ## Validación y estado de las fases
 
@@ -93,7 +103,7 @@ En este entorno Linux se verificó compilación WPF cruzada y se ejecutaron las 
 
 ### Comprobaciones manuales obligatorias en Windows 11
 
-La lista detallada de las ocho verificaciones solicitadas está en [PRUEBAS-WINDOWS.md](docs/PRUEBAS-WINDOWS.md). Las 12 pruebas automáticas cubren el núcleo; no se han ejecutado el Registro ni la bandeja reales en este entorno.
+La lista detallada de las ocho verificaciones solicitadas está en [PRUEBAS-WINDOWS.md](docs/PRUEBAS-WINDOWS.md). Las 17 pruebas automáticas cubren el núcleo; no se han ejecutado el Registro ni la bandeja reales en este entorno.
 
 Usa primero accesos descartables y una copia de seguridad:
 
