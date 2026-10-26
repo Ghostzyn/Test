@@ -1,4 +1,4 @@
-# Desktop Drawers
+# Desktop Drawers 0.2.0
 
 Aplicación nativa C# / WPF para Windows 11 x64, sin navegador ni dependencias de terceros. Usa .NET 10 LTS. El repositorio incluye la solución, la aplicación, una biblioteca independiente de WPF y pruebas ejecutables sin paquetes de pruebas externos.
 
@@ -34,14 +34,17 @@ Ejecuta `artifacts/win-x64/DesktopDrawers.exe`. Es una aplicación portátil sin
 ## Uso
 
 1. Abre el administrador y pulsa **Nuevo cajón**. Puedes crear varios.
-2. Arrastra la barra superior para mover el cajón; usa sus bordes para redimensionarlo. La flecha contrae o expande conservando el tamaño expandido.
+2. Arrastra la barra superior para mover el cajón; usa la esquina inferior derecha para redimensionarlo. La flecha contrae o expande conservando el tamaño expandido.
 3. El engranaje permite cambiar nombre, fondo HEX, título HEX y opacidad del fondo (10–100 %). Los textos e iconos conservan su opacidad. Para RGB, convierte cada componente a su par HEX; todavía no hay selector RGB gráfico.
-4. Arrastra un `.lnk` o `.url` que esté directamente en el escritorio del usuario o público hacia el cajón. El archivo se copia de forma durable a AppData y después se retira del escritorio. No se mueve el ejecutable al que apunta.
+4. Arrastra un `.lnk` o `.url` que esté directamente en el escritorio del usuario o público hacia el cajón. El archivo se traslada a AppData después de guardar su registro de recuperación. No se mueve el ejecutable al que apunta.
 5. Doble clic abre el acceso mediante el shell de Windows. Solo deben importarse accesos de confianza: ejecutarlos tiene el mismo efecto que abrirlos desde Explorer.
 6. Arrastra un elemento de un cajón a otro para reorganizarlo. El menú contextual permite abrirlo o **restaurarlo al escritorio**, quitándolo del cajón sin borrarlo permanentemente.
 7. **Restaurar todo** devuelve los accesos antes de dejar de usar la aplicación. Eliminar un cajón requiere confirmación y restaura sus accesos primero; un error detiene la eliminación.
 8. Ctrl+Alt+D y el botón del administrador alternan la visibilidad global. Si el atajo está ocupado se informa al iniciar y sigue disponible el botón.
-9. **Guardar y salir**, o cerrar el administrador, termina la aplicación. No hay proceso residente en la bandeja.
+9. La **X** y **Ocultar configuración** cierran solamente la vista de administración; los cajones y la aplicación siguen activos. La bandeja permite abrir configuración, mostrar/ocultar cajones, activar/desactivar inicio con Windows y **Salir completamente**, la única salida normal del programa.
+10. **Iniciar Desktop Drawers con Windows** está desactivado por defecto. Al activarlo se guarda un valor por usuario en `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, sin administrador. Inicia con `--background`, sin configuración y respetando la visibilidad guardada. Desactivarlo elimina solo el valor propio. Si mueves el EXE a otra carpeta, desactiva/reactiva esta opción para actualizar la ruta.
+
+Para actualizar, cierra primero la versión anterior, conserva `%LOCALAPPDATA%\DesktopDrawers` y extrae el nuevo ZIP. El formato JSON v1 permanece compatible. [Cambios 0.2.0](CHANGELOG.md) y [pruebas manuales Windows](docs/PRUEBAS-WINDOWS.md).
 
 ## Datos y recuperación
 
@@ -51,19 +54,21 @@ Datos en `%LOCALAPPDATA%\DesktopDrawers`:
 - `state.json.bak`: versión anterior del estado; se usa si la principal es ilegible. Si ambas son ilegibles, el inicio falla visiblemente y no las reemplaza por un estado vacío.
 - `Shortcuts`: accesos con nombres GUID que evitan colisiones. No borres esta carpeta al quitar los binarios de la aplicación.
 
-El JSON se escribe en un temporal, se fuerza a disco y se sustituye mediante `File.Replace`. El registro del acceso se guarda antes de retirar el original. Un fallo puede dejar una copia duplicada, priorizando conservar los archivos. Si una operación informa un error, revisa la entrada y usa Restaurar; no repitas manualmente borrados. La restauración elige un nombre libre (`Nombre (1).lnk`, etc.) sin sobrescribir el archivo existente. Guarda la nueva ruta antes de borrar la copia administrada. Si faltan todas las copias, conserva el registro y muestra un error.
+El JSON se escribe en un temporal, se fuerza a disco y se sustituye mediante `File.Replace`. El registro del acceso se guarda antes de retirar el original. El traslado usa `File.Move` sin sobrescritura; ante fallo con el original presente se revierte la entrada y cualquier destino parcial. Un corte del proceso puede dejar una entrada pendiente de recuperación, priorizando conservar los archivos. Si una operación informa un error, revisa la entrada y usa Restaurar; no repitas manualmente borrados. La restauración elige un nombre libre (`Nombre (1).lnk`, etc.) sin sobrescribir el archivo existente. Guarda la nueva ruta antes de borrar la copia administrada. Si faltan todas las copias, conserva el registro y muestra un error.
 
 Se consulta `Environment.SpecialFolder.DesktopDirectory` y `CommonDesktopDirectory`, respetando ubicaciones redirigidas. La versión inicial rechaza archivos marcados Offline o ReparsePoint para evitar mover placeholders de OneDrive o enlaces del sistema: materializa una copia local antes de importarlos. Solo acepta accesos directamente en esos escritorios, no en subcarpetas. Los accesos públicos protegidos pueden dar error de permisos; no se elevan privilegios. Si el escritorio original no existe, se intenta un escritorio disponible. No se sincronizan cambios externos al JSON durante la ejecución. Una exclusión mutua evita dos instancias por usuario.
 
-Ante un corte de energía, realiza copia de seguridad de toda la carpeta de datos antes de intervenir. Los restos `.pending` corresponden a copias interrumpidas; el original no se retira hasta finalizar la copia. Esta estrategia no sustituye una copia de seguridad del disco.
+Ante un corte de energía, realiza copia de seguridad de toda la carpeta de datos antes de intervenir. Los restos `.pending` de la versión anterior corresponden a copias interrumpidas y no se borran automáticamente al actualizar. Esta estrategia no sustituye una copia de seguridad del disco.
 
-## Integración con Explorer: alternativa conservadora
+## Integración con Explorer
 
-Esta versión **no reparenta ventanas en WorkerW/Progman ni modifica Explorer**. Esas jerarquías (incluido `SHELLDLL_DefView`) son detalles internos, cambian entre versiones y requieren pruebas en Windows real, incluyendo reinicios de Explorer, DPI y monitores múltiples. El reparentado también puede destruir o desconectar ventanas cuando Explorer se reinicia.
+Se eliminó la regla que ocultaba cajones al cambiar el foco (`CanShowDrawers` / `EVENT_SYSTEM_FOREGROUND`), causante de su desaparición al seleccionar/arrastrar iconos. La visibilidad depende únicamente del interruptor global.
 
-La alternativa implementada utiliza `SetWinEventHook(EVENT_SYSTEM_FOREGROUND, WINEVENT_OUTOFCONTEXT)` y `RegisterHotKey`; no inyecta código ni instala hooks de ratón. Los cajones no son Topmost, no ocupan la barra de tareas y se ocultan cuando una aplicación ajena pasa al primer plano, incluidos los juegos. Se vuelven a mostrar cuando el primer plano es Progman/WorkerW o la propia aplicación y la visibilidad global está activada. Por ello se ocultan también cuando otra aplicación no maximizada está activa: no son elementos nativos embebidos en el escritorio. No dependen de un handle persistente de Explorer; la siguiente notificación de primer plano vuelve a evaluar su clase tras un reinicio.
+La revisión aloja los HWND de los cajones como hijos del Progman/WorkerW que contiene `SHELLDLL_DefView`, en el proceso del shell. La jerarquía del escritorio los mantiene bajo las ventanas de aplicaciones sin Topmost. No se inyecta código, no se modifica Explorer ni se usan hooks globales de teclado o ratón. Se registra Ctrl+Alt+D, se observan destrucción del host y mensajes `TaskbarCreated`/cambio de pantallas para recrear los cajones.
 
-El doble clic sobre una zona vacía del escritorio **no está implementado**: distinguir de forma fiable los iconos de Explorer sin inyección ni hooks globales requiere validación adicional. Ctrl+Alt+D es la alternativa segura solicitada. No se atribuye a esta implementación equivalencia completa con iTop Easy Desktop.
+Esta jerarquía no es una API pública estable. Si no existe un host compatible o `SetParent` falla, el administrador muestra el diagnóstico, conserva datos y reintenta; no se sustituye por ventanas sobre otras aplicaciones. La compatibilidad real (incluidos reinicio de Explorer, DnD OLE y DPI mixtos) está pendiente de Windows 11. [Procedimiento de prueba y limitaciones](docs/PRUEBAS-WINDOWS.md).
+
+El doble clic en una zona vacía del escritorio sigue pendiente; se conserva Ctrl+Alt+D y el menú de bandeja.
 
 ## Arquitectura
 
@@ -73,9 +78,9 @@ El doble clic sobre una zona vacía del escritorio **no está implementado**: di
 - `DesktopDrawers/Views`: ventanas WPF y controles.
 - `DesktopDrawers/ViewModels`: representación de accesos e iconos.
 - `DesktopDrawers/Services`: coordinación, guardado diferido y extracción de iconos.
-- `DesktopDrawers/NativeInterop`: eventos de primer plano y atajo.
+- `DesktopDrawers/NativeInterop`: alojamiento del escritorio, recuperación y atajo.
 
-El guardado de geometría se difiere 400 ms para agrupar cambios; no existe sondeo periódico del escritorio. Los handles de icono se liberan mediante `DestroyIcon`, los bitmaps se congelan y el hook se libera al salir. Actualmente los iconos se cargan al refrescar el cajón: la carga diferida y virtualización de grandes colecciones quedan pendientes. No hay mediciones de consumo ni afirmaciones numéricas de rendimiento.
+El guardado de geometría se difiere 400 ms para agrupar cambios; no existe sondeo periódico del foco; solo hay reintentos de integración si falla el alojamiento. Los handles de icono se liberan mediante `DestroyIcon`, los bitmaps se congelan y el hook se libera al salir. Actualmente los iconos se cargan al refrescar el cajón: la carga diferida y virtualización de grandes colecciones quedan pendientes. No hay mediciones de consumo ni afirmaciones numéricas de rendimiento.
 
 ## Validación y estado de las fases
 
@@ -83,10 +88,12 @@ En este entorno Linux se verificó compilación WPF cruzada y se ejecutaron las 
 
 - Fase 1: código implementado para ventanas, geometría, nombre, expansión, HEX/opacidad y persistencia; comprobación gráfica pendiente. Sin animación, por simplicidad.
 - Fase 2: código implementado para importar, iconos del shell, abrir, mover y restaurar. Lógica de archivos probada con fixtures; accesos reales e iconos pendientes de Windows.
-- Fase 3: alternativa de visibilidad y atajo implementada; integración nativa WorkerW y doble clic del escritorio pendientes. Sin pruebas de Explorer en esta máquina.
+- Fase 3: alojamiento Progman/WorkerW, residencia, inicio por usuario y recuperación implementados; comprobación Windows pendiente. Doble clic del fondo pendiente.
 - Fase 4: pruebas del núcleo, compilación y publicación; quedan las pruebas manuales Windows, perfiles de rendimiento, firma e instalador.
 
 ### Comprobaciones manuales obligatorias en Windows 11
+
+La lista detallada de las ocho verificaciones solicitadas está en [PRUEBAS-WINDOWS.md](docs/PRUEBAS-WINDOWS.md). Las 12 pruebas automáticas cubren el núcleo; no se han ejecutado el Registro ni la bandeja reales en este entorno.
 
 Usa primero accesos descartables y una copia de seguridad:
 

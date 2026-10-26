@@ -10,10 +10,24 @@ public partial class ManagerWindow : Window
     public ManagerWindow(Workspace workspace)
     {
         InitializeComponent(); this.workspace = workspace;
-        workspace.Updated += Refresh;
+        workspace.Updated += () => { if (IsVisible) Refresh(); };
         Refresh();
     }
-    private void Refresh() { Drawers.ItemsSource = null; Drawers.ItemsSource = workspace.State.Drawers; }
+    private void Refresh()
+    {
+        Drawers.ItemsSource = null; Drawers.ItemsSource = workspace.State.Drawers;
+        Workspace.Safe(() => StartupCheck.IsChecked = workspace.Startup.Enabled);
+        IntegrationStatus.Text = workspace.IntegrationStatus;
+    }
+    public void OpenConfiguration()
+    {
+        Refresh(); Show(); WindowState = WindowState.Normal; Activate();
+    }
+    private void StartupChanged(object sender, RoutedEventArgs e)
+    {
+        Workspace.Safe(() => workspace.SetStartup(StartupCheck.IsChecked == true));
+        Refresh();
+    }
     private void Create(object sender, RoutedEventArgs e) => workspace.Create();
     private void Toggle(object sender, RoutedEventArgs e) => workspace.Toggle();
     private void Restore(object sender, RoutedEventArgs e) => workspace.RestoreAll();
@@ -21,6 +35,11 @@ public partial class ManagerWindow : Window
     {
         if (Drawers.SelectedItem is Drawer d) new DrawerSettings(workspace, d) { Owner = this }.ShowDialog();
     }
-    private void Exit(object sender, RoutedEventArgs e) => Application.Current.Shutdown();
-    protected override void OnClosing(CancelEventArgs e) { base.OnClosing(e); Application.Current.Shutdown(); }
+    private void HideConfiguration(object sender, RoutedEventArgs e) { workspace.Flush(); Hide(); }
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        if (((App)Application.Current).Lifetime.ShouldHideOnClose)
+        { e.Cancel = true; workspace.Flush(); Hide(); }
+        base.OnClosing(e);
+    }
 }

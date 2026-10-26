@@ -68,6 +68,73 @@ var tests = new (string Name, Action<string> Run)[]
         var item = new Shortcut { StoredPath = Path.Combine(root, "escape.lnk") }; d.Items.Add(item);
         Throws(() => s.Restore(d, item)); Check(d.Items.Count == 1, "conservar registro");
         Throws(() => s.ValidateManagedPath(Path.Combine(root, "App", "Shortcuts", "..", "escape.lnk")));
+    }),
+    ("Cerrar configuración conserva residencia; salida explícita", _ =>
+    {
+        var lifetime = new ResidentLifetime();
+        Check(lifetime.ShouldHideOnClose && !lifetime.ExitRequested, "inicio residente");
+        Check(lifetime.ShouldHideOnClose, "cerrar configuración no solicita salida");
+        lifetime.RequestExit();
+        Check(!lifetime.ShouldHideOnClose && lifetime.ExitRequested, "salida de bandeja");
+    }),
+    ("Inicio por usuario: predeterminado, persistencia, desactivación y rutas con espacios", _ =>
+    {
+        var backend = new MemoryStartupStore();
+        var startup = new StartupRegistration(backend, @"C:\Mis programas\DesktopDrawers.exe");
+        Check(!startup.Enabled, "desactivado inicialmente");
+        startup.SetEnabled(true);
+        Check(backend.Value == "\"C:\\Mis programas\\DesktopDrawers.exe\" --background", "comando citado y segundo plano");
+        Check(new StartupRegistration(backend, @"C:\Mis programas\DesktopDrawers.exe").Enabled, "preferencia persistente");
+        startup.SetEnabled(false); Check(!startup.Enabled && backend.Value is null, "eliminar solo registro propio");
+        var development = StartupRegistration.BuildCommand(@"C:\dotnet\dotnet.exe", @"C:\Code Folder\DesktopDrawers.dll");
+        Check(development.EndsWith("DesktopDrawers.dll\" --background"), "ejecución desde SDK");
+        Throws(() => StartupRegistration.BuildCommand("bad\"path"));
+    }),
+    ("Error al registrar inicio no habilita la preferencia", _ =>
+    {
+        var backend = new MemoryStartupStore { FailWrites = true };
+        var startup = new StartupRegistration(backend, "app.exe");
+        Throws(() => startup.SetEnabled(true)); Check(!startup.Enabled, "sin falso éxito");
+    }),
+    ("Actualizar sin perder el JSON v1 y los cajones anteriores", root =>
+    {
+        var id = Guid.NewGuid();
+        File.WriteAllText(Path.Combine(root, "state.json"), $$"""
+        {"Version":1,"Visible":false,"Drawers":[{"Id":"{{id}}","Name":"Antes de actualizar","Left":150,"Top":175,"Width":420,"Height":390,"Expanded":false,"Background":"#123456","TitleColor":"#ABCDEF","Opacity":0.45,"Items":[]}]}
+        """);
+        var store = new StateStore(root); var state = store.Load(); store.Save(state);
+        var loaded = store.Load(); var drawer = loaded.Drawers.Single();
+        Check(!loaded.Visible && drawer.Id == id && drawer.Name == "Antes de actualizar" && drawer.Left == 150 && drawer.Top == 175 && drawer.Width == 420 && drawer.Height == 390 && !drawer.Expanded && drawer.Background == "#123456" && drawer.TitleColor == "#ABCDEF" && drawer.Opacity == .45, "compatibilidad sin migración destructiva");
+    }),
+    ("Mover fallido conserva original y revierte metadata y copia parcial", root =>
+    {
+        var desktop = Path.Combine(root, "Desktop"); Directory.CreateDirectory(desktop);
+        foreach (var partial in new[] { false, true })
+        {
+            var app = Path.Combine(root, partial ? "Partial" : "Fail");
+            var store = new StateStore(app); var drawer = new Drawer();
+            var state = new AppState { Drawers = [drawer] };
+            var service = new ShortcutService(store, state, [desktop], new FailedMover(partial));
+            var path = Path.Combine(desktop, partial ? "Partial.lnk" : "Fail.url");
+            File.WriteAllText(path, "original intacto");
+            Throws(() => service.Import(drawer, path));
+            Check(File.ReadAllText(path) == "original intacto", "fuente intacta");
+            Check(drawer.Items.Count == 0 && store.Load().Drawers[0].Items.Count == 0, "rollback metadata");
+            Check(!Directory.EnumerateFiles(Path.Combine(app, "Shortcuts")).Any(), "sin duplicado administrado");
+        }
+    }),
+    ("Prevalidación acepta escritorio público y .URL sin modificar archivos", root =>
+    {
+        var user = Path.Combine(root, "User"); var common = Path.Combine(root, "Public");
+        Directory.CreateDirectory(user); Directory.CreateDirectory(common);
+        var drawer = new Drawer(); var state = new AppState { Drawers = [drawer] };
+        var service = new ShortcutService(new StateStore(Path.Combine(root, "App")), state, [user, common]);
+        var path = Path.Combine(common, "Enlace.URL"); File.WriteAllText(path, "[InternetShortcut]");
+        Check(service.CanImport(path) && File.Exists(path) && drawer.Items.Count == 0, "drag-over sin efectos");
+        Check(!service.CanImport(Path.Combine(common, "no existe.lnk")), "inexistente");
+        var item = service.Import(drawer, path);
+        Check(!File.Exists(path) && item.Name == "Enlace", "sin duplicado y nombre conservado");
+        Check(service.Restore(drawer, item) == path && File.Exists(path), "restaurar escritorio público");
     })
 };
 var failures = 0;
@@ -82,3 +149,20 @@ Console.WriteLine($"{tests.Length - failures}/{tests.Length} pruebas aprobadas")
 return failures == 0 ? 0 : 1;
 static void Check(bool value, string message) { if (!value) throw new Exception(message); }
 static void Throws(Action action) { try { action(); } catch { return; } throw new Exception("Se esperaba un error"); }
+
+sealed class MemoryStartupStore : IStartupStore
+{
+    public string? Value { get; private set; }
+    public bool FailWrites { get; init; }
+    public string? Read() => Value;
+    public void Write(string command) { if (FailWrites) throw new UnauthorizedAccessException(); Value = command; }
+    public void Remove() => Value = null;
+}
+sealed class FailedMover(bool partial) : IShortcutMover
+{
+    public void Move(string source, string destination)
+    {
+        if (partial) File.WriteAllText(destination, "partial");
+        throw new IOException("Fallo de movimiento simulado");
+    }
+}

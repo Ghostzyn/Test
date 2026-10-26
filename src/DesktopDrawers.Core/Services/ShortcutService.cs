@@ -4,11 +4,24 @@ using DesktopDrawers.Core.Persistence;
 namespace DesktopDrawers.Core.Services;
 
 // Write-ahead metadata: a crash can leave a duplicate, never an unrecorded moved file.
-public sealed class ShortcutService(StateStore store, AppState state, IEnumerable<string> desktopRoots)
+public interface IShortcutMover
+{
+    void Move(string source, string destination);
+}
+public sealed class ShortcutMover : IShortcutMover
+{
+    public void Move(string source, string destination) => File.Move(source, destination, overwrite: false);
+}
+public sealed class ShortcutService(StateStore store, AppState state, IEnumerable<string> desktopRoots, IShortcutMover? mover = null)
 {
     private readonly string[] roots = desktopRoots.Where(s => !string.IsNullOrWhiteSpace(s)).Select(Path.GetFullPath).ToArray();
 
-    public Shortcut Import(Drawer drawer, string source)
+    public bool CanImport(string source)
+    {
+        try { ValidateImport(source); return true; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or NotSupportedException) { return false; }
+    }
+    private void ValidateImport(string source)
     {
         source = Path.GetFullPath(source);
         var ext = Path.GetExtension(source).ToLowerInvariant();
@@ -21,23 +34,34 @@ public sealed class ShortcutService(StateStore store, AppState state, IEnumerabl
             throw new InvalidOperationException("Descarga primero el archivo de OneDrive; no se mueven enlaces de sistema ni archivos sin conexión.");
         if (state.Drawers.SelectMany(d => d.Items).Any(i => string.Equals(i.OriginalPath, source, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("Este acceso ya está registrado; restaura primero la entrada anterior.");
+    }
+    public Shortcut Import(Drawer drawer, string source)
+    {
+        if (!state.Drawers.Contains(drawer)) throw new InvalidOperationException("El cajón ya no existe.");
+        source = Path.GetFullPath(source);
+        ValidateImport(source);
+        var ext = Path.GetExtension(source).ToLowerInvariant();
         var item = new Shortcut { Name = Path.GetFileNameWithoutExtension(source), OriginalPath = source };
         item.StoredPath = Path.Combine(store.DirectoryPath, "Shortcuts", item.Id + ext);
         Directory.CreateDirectory(Path.GetDirectoryName(item.StoredPath)!);
         drawer.Items.Add(item);
         try { store.Save(state); }
         catch { drawer.Items.Remove(item); throw; }
-        // If copy/delete fails, the entry remains recoverable via Restore.
-        var pending = item.StoredPath + ".pending";
-        try
+        try { (mover ?? new ShortcutMover()).Move(source, item.StoredPath); }
+        catch
         {
-            using (var input = File.OpenRead(source))
-            using (var output = new FileStream(pending, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            { input.CopyTo(output); output.Flush(true); }
-            File.Move(pending, item.StoredPath, false);
+            // File.Move is atomic on the same volume. On a failed cross-volume
+            // transfer, remove only our unique destination if the source survives.
+            // If the source vanished, retain the durable recovery entry.
+            if (File.Exists(source))
+            {
+                if (File.Exists(item.StoredPath)) File.Delete(item.StoredPath);
+                drawer.Items.Remove(item);
+                try { store.Save(state); }
+                catch { drawer.Items.Add(item); throw; }
+            }
+            throw;
         }
-        finally { if (File.Exists(pending)) File.Delete(pending); }
-        File.Delete(source);
         return item;
     }
 
